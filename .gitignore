@@ -1,0 +1,71 @@
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+
+# =========================
+# IDE / Editor
+# =========================
+
+.vscode/
+.idea/
+
+
+# =========================
+# Jupyter Notebook
+# =========================
+
+.ipynb_checkpoints/
+
+
+# =========================
+# Dataset / Processed Data
+# =========================
+
+data/raw/
+data/processed/*.pkl
+data/processed/*.csv
+
+
+# =========================
+# Experiment Results
+# =========================
+
+experiments/baseline_results/
+experiments/model_results/
+
+
+# =========================
+# Logs / Checkpoints
+# =========================
+
+*.log
+*.pth
+*.pt
+*.ckpt
+
+
+# =========================
+# OS Files
+# =========================
+
+.DS_Store
+Thumbs.db
+
+
+# =========================
+# Temporary Files
+# =========================
+
+*.tmp
+*.temp
+*.swp
