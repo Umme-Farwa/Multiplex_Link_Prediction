@@ -27,21 +27,6 @@ env/
 .ipynb_checkpoints/
 
 
-# =========================
-# Dataset / Processed Data
-# =========================
-
-data/raw/
-data/processed/*.pkl
-data/processed/*.csv
-
-
-# =========================
-# Experiment Results
-# =========================
-
-experiments/baseline_results/
-experiments/model_results/
 
 
 # =========================
