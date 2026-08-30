@@ -1,0 +1,10 @@
+Model,bridge,strong
+gat,0.6234,0.4147
+proposed_A,0.6152,0.4927
+proposed_B_weaktie_decoder,0.6065,0.5312
+adamic_adar,0.5,0.8855
+common_neighbors,0.5,0.7158
+jaccard,0.5,0.7472
+node2vec,0.4336,0.6792
+gcn,0.4325,0.5756
+preferential_attachment,0.2532,0.5352

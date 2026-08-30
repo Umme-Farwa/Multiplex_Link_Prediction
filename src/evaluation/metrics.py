@@ -3,7 +3,8 @@ import numpy as np
 from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
-    f1_score
+    f1_score,
+    precision_recall_curve
 )
 
 
@@ -16,6 +17,12 @@ def classification_metrics(labels, scores, threshold=0.5):
 
     scores:
         Predicted link probabilities
+
+    threshold:
+        Cutoff used to convert scores into binary predictions for F1.
+        Default 0.5, but callers can pass a threshold tuned on a
+        validation set (see find_best_threshold) for fairer comparison
+        across models whose scores may not be equally calibrated.
     """
 
     predictions = [
@@ -45,6 +52,53 @@ def classification_metrics(labels, scores, threshold=0.5):
     }
 
 
+def find_best_threshold(labels, scores):
+    """
+    Find the classification threshold that maximizes F1-score.
+
+    IMPORTANT: this should be called on VALIDATION labels/scores only
+    (never on the test set). Using the test set to pick the threshold
+    would leak test information into the evaluation and inflate the
+    reported F1-score.
+
+    Uses precision_recall_curve to get all candidate thresholds
+    efficiently (rather than scanning every unique score value),
+    then computes F1 from precision/recall directly.
+
+    Returns:
+        best_threshold (float), best_f1 (float)
+    """
+
+    labels = np.asarray(labels)
+    scores = np.asarray(scores)
+
+    precision, recall, thresholds = precision_recall_curve(labels, scores)
+
+    # precision/recall have one more element than thresholds
+    # (the last point corresponds to threshold = +inf, recall = 0),
+    # so we drop that last point before matching against thresholds.
+    precision = precision[:-1]
+    recall = recall[:-1]
+
+    denom = precision + recall
+
+    f1_scores = np.divide(
+        2 * precision * recall,
+        denom,
+        out=np.zeros_like(denom),
+        where=denom != 0
+    )
+
+    if len(f1_scores) == 0:
+        return 0.5, 0.0
+
+    best_idx = int(np.argmax(f1_scores))
+
+    best_threshold = float(thresholds[best_idx])
+    best_f1 = float(f1_scores[best_idx])
+
+    return best_threshold, best_f1
+
 
 def hits_at_k(labels, scores, k=10):
     """
@@ -66,7 +120,6 @@ def hits_at_k(labels, scores, k=10):
     return hits / k
 
 
-
 def mean_reciprocal_rank(labels, scores):
     """
     Calculate Mean Reciprocal Rank (MRR).
@@ -82,26 +135,21 @@ def mean_reciprocal_rank(labels, scores):
     return 0.0
 
 
-
-def evaluate_all(labels, scores):
+def evaluate_all(labels, scores, threshold=0.5):
     """
-    Complete evaluation.
+    Complete evaluation for binary link prediction.
+
+    threshold:
+        Optional cutoff for F1 (default 0.5). Pass a
+        validation-tuned threshold (from find_best_threshold) for
+        fairer F1 comparison across models with different score
+        calibration.
     """
 
     results = classification_metrics(
         labels,
-        scores
-    )
-
-    results["Hits@10"] = hits_at_k(
-        labels,
         scores,
-        k=10
+        threshold=threshold
     )
 
-    results["MRR"] = mean_reciprocal_rank(
-        labels,
-        scores
-    )
-
-    return results  
+    return results

@@ -1,75 +1,51 @@
+import pandas as pd
 import networkx as nx
 
 
-def load_nodes(node_file):
+def load_multiplex_dataset(edge_path):
     """
-    Load all nodes from CS-Aarhus_nodes.txt
-    """
-    nodes = []
-
-    with open(node_file, "r") as f:
-        for line in f:
-            if line.strip() == "":
-                continue
-
-            parts = line.split()
-
-            if parts[0].isdigit():
-                nodes.append(int(parts[0]))
-
-    return nodes
-
-def load_multiplex_dataset(edge_file, node_file):
-    """
-    Load multiplex network and create
-    separate graphs for each layer.
+    Load arXiv multiplex network and create
+    layer-wise NetworkX graphs.
     """
 
-    all_nodes = load_nodes(node_file)
+    # Read raw edge file
+    edges = pd.read_csv(
+        edge_path,
+        sep=r"\s+",
+        header=None,
+        names=[
+            "layer",
+            "source",
+            "target",
+            "weight"
+        ]
+    )
 
-    layers = {}
 
-    # Create graphs
-    with open(edge_file, "r") as f:
-        for line in f:
+    multiplex_graphs = {}
 
-            if line.startswith("#") or line.strip() == "":
-                continue
 
-            layer_id, node1, node2, weight = line.split()
+    # Create graph for each layer
+    for layer_id in edges["layer"].unique():
 
-            layer_id = int(layer_id)
-            node1 = int(node1)
-            node2 = int(node2)
+        layer_edges = edges[
+            edges["layer"] == layer_id
+        ]
 
-            if layer_id not in layers:
-                layers[layer_id] = nx.Graph()
 
-            layers[layer_id].add_edge(
-                node1,
-                node2,
-                weight=int(weight)
+        G = nx.Graph()
+
+
+        for _, row in layer_edges.iterrows():
+
+            G.add_edge(
+                int(row["source"]),
+                int(row["target"]),
+                weight=float(row["weight"])
             )
 
-    # Add all nodes to every layer
-    for layer_id, graph in layers.items():
-        graph.add_nodes_from(all_nodes)
 
-    return layers
+        multiplex_graphs[layer_id] = G
 
 
-if __name__ == "__main__":
-
-    edge_path = "data/raw/CS-Aarhus_multiplex.edges"
-    node_path = "data/raw/CS-Aarhus_nodes.txt"
-
-    graphs = load_multiplex_dataset(edge_path, node_path)
-
-    print("Number of layers:", len(graphs))
-
-    for layer_id, graph in graphs.items():
-        print(
-            f"Layer {layer_id}: "
-            f"Nodes={graph.number_of_nodes()}, "
-            f"Edges={graph.number_of_edges()}"
-        )
+    return multiplex_graphs

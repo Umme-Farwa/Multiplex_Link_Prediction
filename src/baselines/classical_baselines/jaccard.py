@@ -1,6 +1,20 @@
+import sys
+import os
 import pickle
+import networkx as nx
 
-from src.evaluation.metrics import evaluate_all
+
+sys.path.append(
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "../../.."
+        )
+    )
+)
+
+
+from src.evaluation.metrics import evaluate_all, find_best_threshold
 from src.utils.save_results import (
     save_metrics,
     save_predictions
@@ -10,7 +24,7 @@ from src.utils.save_results import (
 
 def jaccard_score(graph, node1, node2):
     """
-    Calculate Jaccard similarity score.
+    Calculate Jaccard Coefficient score.
     """
 
     neighbors_1 = set(graph.neighbors(node1))
@@ -19,50 +33,90 @@ def jaccard_score(graph, node1, node2):
 
     union = neighbors_1.union(neighbors_2)
 
+
     if len(union) == 0:
-        return 0.0
+        return 0
 
 
-    intersection = neighbors_1.intersection(
-        neighbors_2
-    )
+    intersection = neighbors_1.intersection(neighbors_2)
 
 
     return len(intersection) / len(union)
 
 
 
-def create_training_graph(original_graph, train_edges):
-    """
-    Create graph using only training edges.
-    """
 
-    import networkx as nx
+def create_training_graph(original_graph, train_edges):
 
     train_graph = nx.Graph()
+
 
     train_graph.add_nodes_from(
         original_graph.nodes()
     )
 
-    train_graph.add_edges_from(
-        train_edges
-    )
+
+    for u, v, weight in train_edges:
+
+        train_graph.add_edge(
+            u,
+            v,
+            weight=weight
+        )
+
 
     return train_graph
+
+
+
+
+def score_edge_set(train_graph, positive_edges, negative_edges):
+    """
+    Score a set of positive and negative edges with the Jaccard
+    coefficient. Returns (labels, scores): positives first, then
+    negatives. Used for both validation (threshold tuning) and test.
+    """
+
+    labels = []
+    scores = []
+
+
+    for edge in positive_edges:
+
+        u = edge[0]
+        v = edge[1]
+
+        scores.append(
+            jaccard_score(train_graph, u, v)
+        )
+        labels.append(1)
+
+
+    for edge in negative_edges:
+
+        u = edge[0]
+        v = edge[1]
+
+        scores.append(
+            jaccard_score(train_graph, u, v)
+        )
+        labels.append(0)
+
+
+    return labels, scores
+
 
 
 
 if __name__ == "__main__":
 
 
-    # Load processed data
-
     with open(
         "data/processed/multiplex_graphs.pkl",
         "rb"
     ) as f:
         graphs = pickle.load(f)
+
 
 
     with open(
@@ -72,6 +126,25 @@ if __name__ == "__main__":
         train_edges = pickle.load(f)
 
 
+
+    # Validation edges (used ONLY to tune the F1 threshold)
+
+    with open(
+        "data/processed/val_edges.pkl",
+        "rb"
+    ) as f:
+        val_edges = pickle.load(f)
+
+
+
+    with open(
+        "data/processed/val_negative_edges.pkl",
+        "rb"
+    ) as f:
+        val_negative_edges = pickle.load(f)
+
+
+
     with open(
         "data/processed/test_edges.pkl",
         "rb"
@@ -79,11 +152,12 @@ if __name__ == "__main__":
         test_edges = pickle.load(f)
 
 
+
     with open(
-        "data/processed/negative_edges.pkl",
+        "data/processed/test_negative_edges.pkl",
         "rb"
     ) as f:
-        negative_edges = pickle.load(f)
+        test_negative_edges = pickle.load(f)
 
 
 
@@ -93,6 +167,7 @@ if __name__ == "__main__":
 
 
     for layer_name, graph in graphs.items():
+
 
         print("\n====================")
         print("Layer:", layer_name)
@@ -105,51 +180,66 @@ if __name__ == "__main__":
         )
 
 
-        labels = []
-        scores = []
+
+        # ------------------------------------------
+        # VALIDATION: tune the F1 threshold
+        # ------------------------------------------
+
+        val_labels, val_scores = score_edge_set(
+            train_graph,
+            val_edges[layer_name],
+            val_negative_edges[layer_name]
+        )
+
+
+        best_threshold, best_val_f1 = find_best_threshold(
+            val_labels,
+            val_scores
+        )
+
+
+        print(
+            f"\nBest threshold (from val): {best_threshold:.4f} "
+            f"(val F1 = {best_val_f1:.4f})"
+        )
+
+
+
+        # ------------------------------------------
+        # TEST: score positives + negatives
+        # ------------------------------------------
+
+        test_labels, test_scores = score_edge_set(
+            train_graph,
+            test_edges[layer_name],
+            test_negative_edges[layer_name]
+        )
+
+
+
         predictions = []
 
+        index = 0
 
 
-        # Positive links
-
-        for u, v in test_edges[layer_name]:
-
-            score = jaccard_score(
-                train_graph,
-                u,
-                v
-            )
-
-            scores.append(score)
-            labels.append(1)
+        for u, v, weight in test_edges[layer_name]:
 
             predictions.append(
-                (u, v, score, 1, layer_name)
+                (u, v, test_scores[index], 1, layer_name)
             )
 
+            index += 1
 
 
-        # Negative links
-
-        for u, v in negative_edges[layer_name]:
-
-            score = jaccard_score(
-                train_graph,
-                u,
-                v
-            )
-
-            scores.append(score)
-            labels.append(0)
+        for u, v in test_negative_edges[layer_name]:
 
             predictions.append(
-                (u, v, score, 0, layer_name)
+                (u, v, test_scores[index], 0, layer_name)
             )
 
+            index += 1
 
 
-        # Top predicted links
 
         print("\nTop predicted links:")
 
@@ -171,15 +261,24 @@ if __name__ == "__main__":
 
 
 
-        # Evaluation
+        # ------------------------------------------
+        # Evaluation (F1 uses validation-tuned threshold)
+        # ------------------------------------------
 
         results = evaluate_all(
-            labels,
-            scores
+            test_labels,
+            test_scores,
+            threshold=best_threshold
         )
 
 
-        results["Layer"] = layer_name
+        results = {
+            "ROC-AUC": results["ROC-AUC"],
+            "PR-AUC": results["PR-AUC"],
+            "F1-score": results["F1-score"],
+            "Threshold_Used": best_threshold,
+            "Layer": layer_name
+        }
 
         all_metrics.append(results)
 
@@ -200,18 +299,17 @@ if __name__ == "__main__":
 
 
 
-    # Save results
 
     save_metrics(
         all_metrics,
-        "classical_metrics/jaccard_metrics.csv"
+        "classical/jaccard_metrics.csv"
     )
 
 
     save_predictions(
         all_predictions,
-        "classical_predictions/jaccard_predictions.csv"
+        "classical/jaccard_predictions.csv"
     )
 
 
-    print("\nResults saved successfully!")
+    print("\nJaccard baseline completed successfully!")

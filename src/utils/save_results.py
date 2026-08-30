@@ -2,35 +2,51 @@ import os
 import pandas as pd
 
 
-def save_metrics(results, filename):
+def save_metrics(results, filename, base_folder="experiments/baseline_results/metrics"):
     """
     Save evaluation metrics.
+
+    base_folder:
+        Root directory to save under. Defaults to the baseline metrics
+        folder, but callers (e.g. the proposed model or ablation runs)
+        can point it elsewhere, e.g. "experiments/model_results/metrics".
+    filename:
+        Path relative to base_folder, may include subfolders
+        (e.g. "classical/adamic_adar_metrics.csv").
     """
 
-    folder = "experiments/baseline_results/metrics"
+    path = os.path.join(base_folder, filename)
 
     os.makedirs(
-        folder,
+        os.path.dirname(path),
         exist_ok=True
     )
 
     df = pd.DataFrame(results)
 
     df.to_csv(
-        os.path.join(folder, filename),
+        path,
         index=False
     )
 
 
-def save_predictions(predictions, filename):
+def save_predictions(predictions, filename, base_folder="experiments/baseline_results/predictions"):
     """
     Save prediction scores.
+
+    base_folder:
+        Root directory to save under. Defaults to the baseline
+        predictions folder; callers can override it (e.g. the proposed
+        model uses "experiments/model_results/predictions").
+    filename:
+        Path relative to base_folder, may include subfolders
+        (e.g. "classical/adamic_adar_predictions.csv").
     """
 
-    folder = "experiments/baseline_results/predictions"
+    path = os.path.join(base_folder, filename)
 
     os.makedirs(
-        folder,
+        os.path.dirname(path),
         exist_ok=True
     )
 
@@ -46,6 +62,6 @@ def save_predictions(predictions, filename):
     )
 
     df.to_csv(
-        os.path.join(folder, filename),
+        path,
         index=False
     )

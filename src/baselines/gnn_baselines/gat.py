@@ -1,694 +1,496 @@
+# ==========================================
+# IMPORT PATH FIX
+# ==========================================
+
+import sys
 import os
-import csv
+
+sys.path.append(
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "../../.."
+        )
+    )
+)
+
+# ==========================================
+# IMPORTS
+# ==========================================
+
 import pickle
+import random
+import numpy as np
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
-from torch_geometric.nn import GATConv
+import networkx as nx
+
 from torch_geometric.data import Data
+from torch_geometric.nn import GATConv
+from torch_geometric.utils import to_undirected
 
-from sklearn.metrics import (
-    roc_auc_score,
-    average_precision_score,
-    f1_score
+from src.evaluation.metrics import evaluate_all, find_best_threshold
+from src.utils.save_results import (
+    save_metrics,
+    save_predictions
 )
 
 
-# ==========================
-# DEVICE
-# ==========================
+# ==========================================
+# Create Training Graph
+# ==========================================
 
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
-
-print("Using device:", device)
-
-
-
-# ==========================
-# PATHS
-# ==========================
-
-GRAPH_PATH = "data/processed/multiplex_graphs.pkl"
-TRAIN_PATH = "data/processed/train_edges.pkl"
-TEST_PATH = "data/processed/test_edges.pkl"
-NEG_PATH = "data/processed/negative_edges.pkl"
+def create_training_graph(original_graph, train_edges):
+    train_graph = nx.Graph()
+    train_graph.add_nodes_from(original_graph.nodes())
+    train_graph.add_edges_from(train_edges)
+    return train_graph
 
 
-METRIC_PATH = "experiments/baseline_results/metrics/gnn_metrics/gat_metrics.csv"
+# ==========================================
+# Structural Node Features
+# ==========================================
 
-PRED_PATH = "experiments/baseline_results/predictions/gnn_predictions/gat_predictions.csv"
+def create_node_features(graph):
+
+    print("Generating node features...")
+
+    nodes = sorted(graph.nodes())
+    num_nodes = len(nodes)
+
+    degree_centrality = nx.degree_centrality(graph)
+    pagerank = nx.pagerank(graph)
+    clustering = nx.clustering(graph)
+
+    try:
+        kcore = nx.core_number(graph)
+    except Exception:
+        kcore = {node: 0 for node in nodes}
+
+    # Betweenness centrality: how often a node lies on shortest paths
+    # between other nodes -- captures a "bridging" structural role.
+    # Sampled (k pivots) for speed, matching the proposed model.
+    try:
+        k_pivots = min(500, num_nodes)
+        betweenness = nx.betweenness_centrality(
+            graph,
+            k=k_pivots,
+            seed=42
+        )
+    except Exception:
+        betweenness = {node: 0.0 for node in nodes}
+
+    # Eigenvector centrality: importance based on being connected to
+    # other important nodes -- a "global influence" signal.
+    try:
+        eigenvector = nx.eigenvector_centrality(
+            graph,
+            max_iter=1000,
+            tol=1e-04
+        )
+    except Exception:
+        eigenvector = {node: 0.0 for node in nodes}
+
+    features = []
+    for node in nodes:
+        features.append([
+            degree_centrality[node],
+            pagerank[node],
+            clustering[node],
+            kcore[node],
+            betweenness[node],
+            eigenvector.get(node, 0.0)
+        ])
+
+    x = torch.tensor(features, dtype=torch.float)
+
+    # --- Normalization (z-score) ---
+    mean = x.mean(dim=0, keepdim=True)
+    std = x.std(dim=0, keepdim=True)
+    x = (x - mean) / (std + 1e-8)
+
+    return x
 
 
+# ==========================================
+# Convert Graph to PyG Data
+# ==========================================
 
-# ==========================
-# LOAD DATA
-# ==========================
+def convert_to_pyg(graph):
 
-with open(GRAPH_PATH, "rb") as f:
-    graphs = pickle.load(f)
+    nodes = sorted(graph.nodes())
+    node_mapping = {node: index for index, node in enumerate(nodes)}
+
+    edge_list = []
+    for u, v in graph.edges():
+        edge_list.append([node_mapping[u], node_mapping[v]])
+
+    edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
+
+    # Symmetrize edges so message passing works both directions
+    if edge_index.numel() > 0:
+        edge_index = to_undirected(edge_index)
+
+    x = create_node_features(graph)
+
+    data = Data(x=x, edge_index=edge_index)
+
+    return data, node_mapping
 
 
-with open(TRAIN_PATH, "rb") as f:
-    train_edges = pickle.load(f)
+# ==========================================
+# GAT Encoder
+# ==========================================
 
+class GATEncoder(nn.Module):
+    """
+    Two-layer Graph Attention Network encoder.
 
-with open(TEST_PATH, "rb") as f:
-    test_edges = pickle.load(f)
+    Layer 1 uses multiple attention heads (concatenated) to let the
+    model attend to different aspects of the neighborhood.
+    Layer 2 uses a single head (averaged) to produce the final
+    fixed-size node embedding.
+    """
 
-
-with open(NEG_PATH, "rb") as f:
-    negative_edges = pickle.load(f)
-
-
-
-# ==========================
-# GAT MODEL
-# ==========================
-
-class GAT(torch.nn.Module):
-
-    def __init__(self):
+    def __init__(
+            self,
+            input_dim,
+            hidden_dim=64,
+            output_dim=32,
+            heads=8,
+            dropout=0.5
+    ):
 
         super().__init__()
 
+        self.dropout = dropout
 
+        # First layer: hidden_dim is PER HEAD, outputs are concatenated
+        # -> actual output size = hidden_dim * heads
         self.conv1 = GATConv(
-            in_channels=1,
-            out_channels=16,
-            heads=2,
-            dropout=0.4
+            in_channels=input_dim,
+            out_channels=hidden_dim,
+            heads=heads,
+            dropout=dropout,
+            concat=True
         )
 
-
+        # Second layer: single head, no concatenation
+        # -> output size = output_dim
         self.conv2 = GATConv(
-            in_channels=32,
-            out_channels=8,
+            in_channels=hidden_dim * heads,
+            out_channels=output_dim,
             heads=1,
-            dropout=0.4
+            concat=False,
+            dropout=dropout
         )
 
+    def forward(self, x, edge_index):
 
+        x = F.dropout(x, p=self.dropout, training=self.training)
 
-    def forward(
-        self,
-        x,
-        edge_index
-    ):
-
-        x = self.conv1(
-            x,
-            edge_index
-        )
-
-
+        x = self.conv1(x, edge_index)
         x = F.elu(x)
 
+        x = F.dropout(x, p=self.dropout, training=self.training)
 
-        x = F.dropout(
-            x,
-            p=0.4,
-            training=self.training
-        )
-
-
-        x = self.conv2(
-            x,
-            edge_index
-        )
-
+        x = self.conv2(x, edge_index)
 
         return x
 
 
+# ==========================================
+# MLP Edge Decoder (vectorized)
+# ==========================================
 
-# ==========================
-# LINK PREDICTION DECODER
-# ==========================
+class EdgeDecoder(nn.Module):
 
-def decode(
-        z,
-        edges
-):
-
-    src = z[edges[0]]
-
-    dst = z[edges[1]]
-
-
-    score = (
-        src * dst
-    ).sum(dim=1)
-
-
-    return torch.sigmoid(score)
-
-
-
-# ==========================
-# EVALUATION
-# ==========================
-
-def evaluate(
-        model,
-        data,
-        positive_edges,
-        negative_edges
-):
-
-    model.eval()
-
-
-    with torch.no_grad():
-
-        z = model(
-            data.x,
-            data.edge_index
+    def __init__(self, embedding_dim):
+        super().__init__()
+        self.decoder = nn.Sequential(
+            nn.Linear(embedding_dim * 2, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
         )
 
+    def forward(self, embeddings, edges):
+        if not torch.is_tensor(edges):
+            edges = torch.tensor(edges, dtype=torch.long, device=embeddings.device)
 
-        pos_scores = decode(
-            z,
-            positive_edges
+        u_emb = embeddings[edges[:, 0]]
+        v_emb = embeddings[edges[:, 1]]
+
+        pairs = torch.cat([u_emb, v_emb], dim=1)
+
+        scores = self.decoder(pairs).squeeze(-1)
+
+        return scores
+
+
+# ==========================================
+# MAIN
+# ==========================================
+
+if __name__ == "__main__":
+
+    # --- multi-seed support (backward compatible) ---
+    # THESIS_SEED     : which random seed to use (default 42 = original run)
+    # THESIS_RUN_TAG  : if set, results go to experiments/multiseed/ instead
+    #                   of overwriting the canonical baseline results
+    # THESIS_MAX_EPOCHS: cap training epochs (default 200 = original); useful
+    #                   for quick smoke tests without touching the real run
+    SEED = int(os.environ.get("THESIS_SEED", "42"))
+    RUN_TAG = os.environ.get("THESIS_RUN_TAG", "")
+    MAX_EPOCHS = int(os.environ.get("THESIS_MAX_EPOCHS", "200"))
+
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+    random.seed(SEED)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
+
+    # ======================================
+    # LOAD DATA
+    # ======================================
+
+    with open("data/processed/multiplex_graphs.pkl", "rb") as f:
+        graphs = pickle.load(f)
+
+    with open("data/processed/train_edges.pkl", "rb") as f:
+        train_edges = pickle.load(f)
+
+    with open("data/processed/train_negative_edges.pkl", "rb") as f:
+        train_negative_edges = pickle.load(f)
+
+    with open("data/processed/val_edges.pkl", "rb") as f:
+        val_edges = pickle.load(f)
+
+    with open("data/processed/val_negative_edges.pkl", "rb") as f:
+        val_negative_edges = pickle.load(f)
+
+    with open("data/processed/test_edges.pkl", "rb") as f:
+        test_edges = pickle.load(f)
+
+    with open("data/processed/test_negative_edges.pkl", "rb") as f:
+        test_negative_edges = pickle.load(f)
+
+    all_metrics = []
+    all_predictions = []
+
+    # ======================================
+    # PROCESS EACH LAYER
+    # ======================================
+
+    for layer_name, graph in graphs.items():
+
+        print("\n====================")
+        print("Layer:", layer_name)
+        print("====================")
+
+        train_graph = create_training_graph(graph, train_edges[layer_name])
+
+        data, node_mapping = convert_to_pyg(train_graph)
+        data = data.to(device)
+
+        # -------------------------------
+        # Map node ids
+        # -------------------------------
+
+        def map_edges(edges):
+            mapped = []
+            for edge in edges:
+                u = edge[0]
+                v = edge[1]
+                mapped.append((node_mapping[u], node_mapping[v]))
+            return mapped
+
+        # -------------------------------
+        # Prepare samples
+        # -------------------------------
+
+        train_positive = map_edges(train_edges[layer_name])
+        train_negative = map_edges(train_negative_edges[layer_name])
+
+        val_positive = map_edges(val_edges[layer_name])
+        val_negative = map_edges(val_negative_edges[layer_name])
+
+        test_positive = map_edges(test_edges[layer_name])
+        test_negative = map_edges(test_negative_edges[layer_name])
+
+        train_samples = train_positive + train_negative
+
+        train_labels = torch.tensor(
+            [1] * len(train_positive) + [0] * len(train_negative),
+            dtype=torch.float,
+            device=device
         )
 
+        # ==================================
+        # MODEL
+        # ==================================
 
-        neg_scores = decode(
-            z,
-            negative_edges
+        encoder = GATEncoder(
+            input_dim=data.x.shape[1],
+            hidden_dim=64,
+            output_dim=32,
+            heads=8,
+            dropout=0.5
+        ).to(device)
+
+        decoder = EdgeDecoder(embedding_dim=32).to(device)
+
+        optimizer = torch.optim.Adam(
+            list(encoder.parameters()) + list(decoder.parameters()),
+            lr=0.001,
+            weight_decay=5e-4
         )
 
+        criterion = nn.BCEWithLogitsLoss()
 
+        # ==================================
+        # TRAINING + VALIDATION
+        # ==================================
 
-    scores = torch.cat(
-        [
-            pos_scores,
-            neg_scores
-        ]
-    ).cpu()
+        best_auc = 0
+        patience = 20
+        counter = 0
+        best_encoder = None
+        best_decoder = None
 
+        for epoch in range(MAX_EPOCHS):
 
+            encoder.train()
+            decoder.train()
 
-    labels = torch.cat(
-        [
-            torch.ones(
-                len(pos_scores)
-            ),
+            optimizer.zero_grad()
 
-            torch.zeros(
-                len(neg_scores)
-            )
-        ]
-    )
+            embeddings = encoder(data.x, data.edge_index)
 
+            train_scores = decoder(embeddings, train_samples)
 
+            loss = criterion(train_scores, train_labels)
 
-    auc = roc_auc_score(
-        labels,
-        scores
-    )
+            loss.backward()
+            optimizer.step()
 
+            # ------------------------------
+            # Validation
+            # ------------------------------
 
-    pr = average_precision_score(
-        labels,
-        scores
-    )
+            encoder.eval()
+            decoder.eval()
 
+            with torch.no_grad():
 
-    prediction = (
-        scores >= 0.5
-    ).int()
+                embeddings = encoder(data.x, data.edge_index)
 
+                val_samples = val_positive + val_negative
 
-    f1 = f1_score(
-        labels,
-        prediction
-    )
+                val_scores = decoder(embeddings, val_samples)
+                val_scores = torch.sigmoid(val_scores).cpu().numpy()
 
+            val_labels = [1] * len(val_positive) + [0] * len(val_negative)
 
-    # Hits@10
+            val_results = evaluate_all(val_labels, val_scores)
+            val_auc = val_results["ROC-AUC"]
 
-    k = min(
-        10,
-        len(scores)
-    )
+            if val_auc > best_auc:
+                best_auc = val_auc
+                best_encoder = encoder.state_dict()
+                best_decoder = decoder.state_dict()
+                counter = 0
+            else:
+                counter += 1
 
+            if counter >= patience:
+                print("Early stopping at epoch:", epoch)
+                break
 
-    top_indices = torch.topk(
-        scores,
-        k
-    ).indices
+        # Restore best model
+        if best_encoder is not None:
+            encoder.load_state_dict(best_encoder)
+            decoder.load_state_dict(best_decoder)
 
+        # ==================================
+        # BEST THRESHOLD (from VALIDATION set only)
+        # ==================================
 
-    hits10 = (
-        labels[top_indices].sum().item()
-        /
-        k
-    )
+        encoder.eval()
+        decoder.eval()
 
+        with torch.no_grad():
 
-    # MRR
+            embeddings = encoder(data.x, data.edge_index)
 
-    ranking = torch.argsort(
-        scores,
-        descending=True
-    )
+            val_samples = val_positive + val_negative
 
+            val_scores_final = decoder(embeddings, val_samples)
+            val_scores_final = torch.sigmoid(val_scores_final).cpu().numpy()
 
-    rank = None
+        val_labels_final = [1] * len(val_positive) + [0] * len(val_negative)
 
+        best_threshold, best_val_f1 = find_best_threshold(val_labels_final, val_scores_final)
 
-    for i, idx in enumerate(ranking):
+        print(f"Best threshold (from val): {best_threshold:.4f} (val F1 = {best_val_f1:.4f})")
 
-        if labels[idx] == 1:
+        # ==================================
+        # TESTING
+        # ==================================
 
-            rank = i + 1
-            break
+        encoder.eval()
+        decoder.eval()
 
+        with torch.no_grad():
 
+            embeddings = encoder(data.x, data.edge_index)
 
-    if rank is None:
+            test_samples = test_positive + test_negative
 
-        mrr = 0
+            test_scores = decoder(embeddings, test_samples)
+            test_scores = torch.sigmoid(test_scores).cpu().numpy()
 
+        test_labels = [1] * len(test_positive) + [0] * len(test_negative)
+
+        results = evaluate_all(test_labels, test_scores, threshold=best_threshold)
+        results["Layer"] = layer_name
+        results["Threshold_Used"] = best_threshold
+
+        all_metrics.append(results)
+
+        print("\nTesting Results:")
+        for metric, value in results.items():
+            if metric != "Layer":
+                print(f"{metric}: {value:.4f}")
+
+        # ==================================
+        # SAVE PREDICTIONS
+        # ==================================
+
+        original_edges = test_edges[layer_name] + test_negative_edges[layer_name]
+
+        for edge, score, label in zip(original_edges, test_scores, test_labels):
+            all_predictions.append((
+                edge[0],
+                edge[1],
+                float(score),
+                label,
+                layer_name
+            ))
+
+    # ======================================
+    # SAVE RESULTS
+    # ======================================
+
+    if RUN_TAG:
+        # multi-seed run: keep canonical results untouched
+        save_metrics(all_metrics, f"gat_{RUN_TAG}.csv", base_folder="experiments/multiseed/metrics")
+        save_predictions(all_predictions, f"gat_{RUN_TAG}.csv", base_folder="experiments/multiseed/predictions")
     else:
+        save_metrics(all_metrics, "gnn/gat_metrics.csv")
+        save_predictions(all_predictions, "gnn/gat_predictions.csv")
 
-        mrr = 1 / rank
-
-
-
-    metrics = {
-
-        "ROC-AUC": auc,
-
-        "PR-AUC": pr,
-
-        "F1-score": f1,
-
-        "Hits@10": hits10,
-
-        "MRR": mrr
-    }
-
-
-    return (
-        metrics,
-        scores,
-        labels
-    )
-
-# ==========================
-# CSV FILES
-# ==========================
-
-metric_file = open(
-    METRIC_PATH,
-    "w",
-    newline=""
-)
-
-metric_writer = csv.writer(
-    metric_file
-)
-
-metric_writer.writerow(
-    [
-        "Layer",
-        "ROC-AUC",
-        "PR-AUC",
-        "F1-score",
-        "Hits@10",
-        "MRR"
-    ]
-)
-
-
-
-pred_file = open(
-    PRED_PATH,
-    "w",
-    newline=""
-)
-
-pred_writer = csv.writer(
-    pred_file
-)
-
-pred_writer.writerow(
-    [
-        "node1",
-        "node2",
-        "score",
-        "label",
-        "layer"
-    ]
-)
-
-
-
-# ==========================
-# EDGE CONVERTER
-# ==========================
-
-def convert_edges(edges):
-
-    return torch.tensor(
-        [
-            [
-                u - 1
-                for u, v in edges
-            ],
-
-            [
-                v - 1
-                for u, v in edges
-            ]
-        ],
-        dtype=torch.long
-    ).to(device)
-
-
-
-
-# ==========================
-# TRAIN EACH MULTIPLEX LAYER
-# ==========================
-
-for layer, graph in graphs.items():
-
-    print("\n====================")
-    print("Layer:", layer)
-    print("====================")
-
-
-
-    # Graph edges
-
-    graph_edges = list(
-        graph.edges()
-    )
-
-
-    edge_index = torch.tensor(
-        [
-            [
-                u - 1
-                for u, v in graph_edges
-            ],
-
-            [
-                v - 1
-                for u, v in graph_edges
-            ]
-        ],
-        dtype=torch.long
-    )
-
-
-
-    print(
-        "Max edge index:",
-        edge_index.max().item()
-    )
-
-
-
-    # Node features (degree)
-
-    num_nodes = max(
-        graph.nodes()
-    )
-
-
-    degree = torch.zeros(
-        num_nodes
-    )
-
-
-    for u, v in graph_edges:
-
-        degree[u-1] += 1
-        degree[v-1] += 1
-
-
-
-    x = degree.view(
-        -1,
-        1
-    )
-
-
-
-    data = Data(
-        x=x,
-        edge_index=edge_index
-    ).to(device)
-
-
-
-    train_e = convert_edges(
-        train_edges[layer]
-    )
-
-
-    test_e = convert_edges(
-        test_edges[layer]
-    )
-
-
-    neg_e = convert_edges(
-        negative_edges[layer]
-    )
-
-
-
-    # ======================
-    # MODEL
-    # ======================
-
-    model = GAT().to(device)
-
-
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=0.005,
-        weight_decay=5e-4
-    )
-
-
-
-    best_auc = 0
-
-    patience = 10
-
-    counter = 0
-
-
-
-    # ======================
-    # TRAINING
-    # ======================
-
-    for epoch in range(100):
-
-        model.train()
-
-
-        optimizer.zero_grad()
-
-
-        z = model(
-            data.x,
-            data.edge_index
-        )
-
-
-        pos_score = decode(
-            z,
-            train_e
-        )
-
-
-        neg_score = decode(
-            z,
-            neg_e
-        )
-
-
-        loss = (
-
-            -torch.log(
-                pos_score + 1e-15
-            ).mean()
-
-            -
-
-            torch.log(
-                1 - neg_score + 1e-15
-            ).mean()
-
-        )
-
-
-        loss.backward()
-
-        optimizer.step()
-
-
-
-        val_metrics, _, _ = evaluate(
-            model,
-            data,
-            test_e,
-            neg_e
-        )
-
-
-
-        current_auc = val_metrics["ROC-AUC"]
-
-
-
-        if current_auc > best_auc:
-
-            best_auc = current_auc
-            counter = 0
-
-        else:
-
-            counter += 1
-
-
-
-        if counter >= patience:
-
-            print(
-                "Early stopping at epoch:",
-                epoch
-            )
-
-            break
-
-
-
-
-    # ======================
-    # FINAL TEST
-    # ======================
-
-    metrics, scores, labels = evaluate(
-        model,
-        data,
-        test_e,
-        neg_e
-    )
-
-
-    print(
-        "\nTesting Results:"
-    )
-
-
-    for name, value in metrics.items():
-
-        print(
-            f"{name}: {value:.4f}"
-        )
-
-
-
-    # ======================
-    # SAVE METRICS
-    # ======================
-
-    metric_writer.writerow(
-        [
-            layer,
-            round(metrics["ROC-AUC"],4),
-            round(metrics["PR-AUC"],4),
-            round(metrics["F1-score"],4),
-            round(metrics["Hits@10"],4),
-            round(metrics["MRR"],4)
-        ]
-    )
-
-
-
-    # ======================
-    # PREDICTIONS
-    # ======================
-
-    all_edges = torch.cat(
-        [
-            test_e,
-            neg_e
-        ],
-        dim=1
-    ).cpu()
-
-
-
-    print(
-        "\nTop predicted links:"
-    )
-
-
-    top_k = min(
-        10,
-        len(scores)
-    )
-
-
-    top_indices = torch.topk(
-        scores,
-        top_k
-    ).indices
-
-
-
-    for idx in top_indices:
-
-        node1 = int(
-            all_edges[0,idx]
-        ) + 1
-
-
-        node2 = int(
-            all_edges[1,idx]
-        ) + 1
-
-
-        print(
-            f"Nodes ({node1},{node2}) "
-            f"Score={scores[idx]:.4f} "
-            f"Label={int(labels[idx])}"
-        )
-
-
-
-    for i in range(
-        all_edges.shape[1]
-    ):
-
-        pred_writer.writerow(
-            [
-                int(all_edges[0,i]) + 1,
-                int(all_edges[1,i]) + 1,
-                round(float(scores[i]),6),
-                int(labels[i]),
-                layer
-            ]
-        )
-
-
-
-metric_file.close()
-
-pred_file.close()
-
-
-
-print("\nGAT baseline completed!")
-print("Metrics and predictions saved!")
+    print("\nImproved GAT baseline completed successfully!")

@@ -1,0 +1,10 @@
+Model,cross,intra
+gat,0.6162,0.5484
+proposed_A,0.5814,0.7126
+proposed_B_weaktie_decoder,0.5717,0.7455
+adamic_adar,0.548,0.9305
+common_neighbors,0.548,0.8804
+jaccard,0.548,0.8932
+gcn,0.4002,0.6232
+node2vec,0.3372,0.8758
+preferential_attachment,0.2383,0.5704
