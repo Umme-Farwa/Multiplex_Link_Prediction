@@ -1,0 +1,127 @@
+\chapter{Materials and Methods}
+\label{ch:methods}
+
+\section{Dataset}
+The experiments use the \emph{arXiv co-authorship multiplex network}, a standard benchmark in which
+nodes are authors and each of the 13 layers corresponds to one research domain (for example
+\texttt{physics.soc-ph} or \texttt{cs.SI}). An edge in a layer means the two authors co-authored a
+paper in that domain. The same author keeps the same node identity in every layer, which is exactly
+the multiplex property~\cite{kivela2014} the model is designed to exploit. The 13 layers vary
+considerably in size and density, which makes the network a good stress test for cross-layer methods.
+
+\section{Preprocessing and Edge Splitting}
+For each layer the observed edges are split into training, validation, and test sets. An equal number
+of \emph{negative} edges (node pairs that are not connected) is sampled to balance each set, so that
+link prediction becomes a balanced binary classification problem. The validation set is used only for
+model selection and threshold tuning; the test set is untouched until final evaluation. The same
+splits are reused across all methods so that every model is measured on identical data -- a
+\textbf{fair-comparison} protocol.
+
+\section{Node Feature Engineering}
+Each node is described by six structural features computed from the graph -- among them its degree,
+clustering coefficient, and centrality measures. These six numbers form the input vector for every
+learning-based model, again ensuring that differences in performance come from the model and not from
+the inputs.
+
+\section{Baseline Methods}
+Three families of baselines were implemented and evaluated under the shared protocol.
+\begin{itemize}
+  \item \textbf{Classical heuristics:} Common Neighbours, Jaccard, Adamic--Adar~\cite{adamic2003},
+        and Preferential Attachment -- neighbourhood-based scores requiring no training.
+  \item \textbf{Embedding baseline:} Node2Vec~\cite{node2vec}, which learns node vectors from biased
+        random walks and predicts links from vector similarity.
+  \item \textbf{Graph neural networks:} GCN~\cite{gcn} and GAT~\cite{gat}, trained per layer on the
+        six node features, representing fixed-weight and attention-weighted message passing
+        respectively.
+\end{itemize}
+
+\section{Proposed Model}
+\label{sec:proposed}
+The proposed model is an attention-based graph neural network built from four components that are
+trained jointly. Figure~\ref{fig:pipeline} shows the complete pipeline, from the raw multiplex
+network to the predicted link probability.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  node distance = 7mm and 12mm,
+  box/.style   = {rectangle, rounded corners=2pt, draw=black, thick, align=center,
+                  text width=7.2cm, minimum height=9mm, font=\small, fill=white},
+  model/.style = {rectangle, rounded corners=2pt, draw=black, thick, align=center,
+                  text width=7.2cm, minimum height=9mm, font=\small, fill=black!7},
+  io/.style    = {rectangle, draw=black, very thick, align=center, text width=7.2cm,
+                  minimum height=9mm, font=\small\bfseries, fill=black!14},
+  arr/.style   = {-{Latex[length=2.4mm]}, thick}
+]
+\node[io]                 (data)  {arXiv Co-authorship Multiplex Network\\(authors as nodes, 13 research-domain layers)};
+\node[box, below=of data] (split) {Edge splitting into train / validation / test\\ + balanced negative sampling};
+\node[box, below=of split](feat)  {Node features (6 structural) \quad+\quad edge weak-tie signal\\ $s_{ij}=1-\mathrm{Jaccard}(i,j)$};
+\node[model, below=of feat](enc)  {\textbf{(1) Weak-Tie-Aware GAT Encoder}\\ per-layer 64-dimensional node embeddings};
+\node[model, below=of enc](cross) {\textbf{(2) Cross-Layer Attention}\\ learned, interpretable layer weights $\beta_\ell$};
+\node[model, below=of cross](gate){\textbf{(3) Fusion Gate}\\ residual combine of within- and cross-layer evidence};
+\node[model, below=of gate](dec)  {\textbf{(4) MLP Decoder}};
+\node[io, below=of dec]   (out)   {Predicted link probability $\hat{y}_{ij}$};
+\node[box, right=12mm of out, text width=3.3cm] (eval)
+        {Evaluation:\\ ROC-AUC, PR-AUC, F1,\\ Hits@K, MRR\\ (5 seeds)};
+
+\draw[arr] (data)  -- (split);
+\draw[arr] (split) -- (feat);
+\draw[arr] (feat)  -- (enc);
+\draw[arr] (enc)   -- (cross);
+\draw[arr] (cross) -- (gate);
+\draw[arr] (gate)  -- (dec);
+\draw[arr] (dec)   -- (out);
+\draw[arr] (out)   -- (eval);
+
+\begin{scope}[on background layer]
+  \node[draw=black, dashed, rounded corners, fit=(enc)(cross)(gate)(dec),
+        inner sep=3mm, label={[font=\small\itshape]above right:Proposed model}] {};
+\end{scope}
+\end{tikzpicture}
+\caption{Overall methodology pipeline. Raw multiplex data is split and turned into node features and an
+edge-level weak-tie signal; the four jointly trained components of the proposed model (dashed box)
+produce a link probability, which is assessed with classification and ranking metrics over five seeds.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Weak-Tie-Aware Attention Encoder}
+The encoder is a graph-attention layer in the spirit of GAT~\cite{gat}, but with a crucial addition:
+each edge carries a scalar \textbf{weak-tie signal} equal to $1-\text{Jaccard}$ of its two endpoints.
+A high value marks a pair from different neighbourhoods -- a weak tie. By feeding this signal to the
+attention mechanism (through the edge dimension of the attention layer), the encoder is told
+\emph{where} the bridging links are, and can learn to represent them, instead of being blind to them
+as neighbourhood heuristics are. The encoder outputs, for every node in every layer, a 64-dimensional
+embedding derived from the six input features and the local weak-tie structure.
+
+\subsection{Cross-Layer Attention}
+The second component addresses the multiplex structure. For each node it collects the embeddings it
+received in all 13 layers and combines them with a learned \textbf{attention weight}
+$\beta_\ell$ per layer, following the cross-relation idea of HAN~\cite{han2019}. These weights are the
+model's statement of how informative each research domain is, and they are read back as an
+interpretable \emph{layer-importance} profile.
+
+\subsection{Fusion Gate}
+A gating step combines each node's own per-layer embedding with the cross-layer summary through a
+learned residual gate, so that the model can rely on within-layer evidence, cross-layer evidence, or
+a balance of the two, as the data dictates.
+
+\subsection{Decoder}
+Finally, a multilayer-perceptron decoder takes the fused embeddings of two candidate nodes and
+outputs the probability that they are linked. An ablation variant, \emph{Proposed~B}, moves the
+weak-tie signal into the decoder instead of the encoder, to isolate where the signal helps most.
+
+\section{Evaluation Protocol}
+Every method is evaluated per layer and averaged over the 13 layers. Classification quality is
+measured by ROC-AUC, PR-AUC, and F1-score (with the threshold tuned on the validation set), and
+ranking quality by Hits@K and MRR. To ensure the results are not an artefact of one random split,
+each learning-based model is run with \textbf{five random seeds}; means and standard deviations are
+reported, and a paired $t$-test assesses the significance of the improvement over the neural
+baselines. A dedicated post-hoc analysis splits the test edges into \emph{weak-tie} and
+\emph{common-neighbour} groups and reports ROC-AUC on each.
+
+\section{Tools and Technologies}
+The models were implemented in \textbf{Python} using \textbf{PyTorch} and \textbf{PyTorch~Geometric}
+for the graph neural networks, \textbf{NetworkX} for graph construction and the classical heuristics,
+\textbf{scikit-learn} for metrics and the Node2Vec pipeline, and \textbf{NumPy}/\textbf{pandas} for
+data handling. Figures were produced with \textbf{Matplotlib}. Training used a single NVIDIA Quadro
+P2000 GPU with early stopping on validation ROC-AUC.

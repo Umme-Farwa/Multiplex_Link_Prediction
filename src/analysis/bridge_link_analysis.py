@@ -36,8 +36,7 @@ MODELS = {
     "node2vec":                   "experiments/baseline_results/predictions/embedding/node2vec_predictions.csv",
     "gcn":                        "experiments/baseline_results/predictions/gnn/gcn_predictions.csv",
     "gat":                        "experiments/baseline_results/predictions/gnn/gat_predictions.csv",
-    "proposed_A":                 "experiments/model_results/predictions/proposed_model_predictions.csv",
-    "proposed_B_weaktie_decoder": "experiments/ablation_results/predictions/proposed_weaktie_decoder_predictions.csv",
+    "Proposed":                   "experiments/model_results/predictions/proposed_model_predictions.csv",
 }
 
 

@@ -1,0 +1,29 @@
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+Link prediction estimates which currently unconnected pairs of nodes in a network are likely to
+become connected. In \emph{multiplex} networks, where the same entities interact through several
+types of relationship at once, two difficulties stand out: the most valuable links to predict are
+often \emph{weak-tie} links between different communities that share no common neighbours, and the
+information that a node carries across the different layers is frequently ignored. Classical
+neighbourhood heuristics, which dominate ordinary link prediction, are by construction unable to score
+weak-tie links, since their similarity value is zero whenever the number of shared neighbours is zero.
+
+This work, carried out during the internship and forming the basis of the master's thesis, proposes an
+\textbf{attention-based graph neural network} for link prediction in multiplex networks. The model
+couples a weak-tie-aware graph-attention encoder -- which injects a $1-\mathrm{Jaccard}$ signal into
+the attention mechanism so that bridging links become visible -- with an interpretable cross-layer
+attention that learns how much each layer contributes, and a fusion gate. A comprehensive set of
+classical, embedding, and graph-neural baselines is evaluated under a strict fair-comparison protocol
+on the 13-layer arXiv co-authorship network, using five random seeds and paired significance testing.
+
+The proposed model attains the highest overall ROC-AUC and a statistically significant improvement over
+the graph-neural baselines it extends ($p<0.001$). On a split into weak-tie and common-neighbour links
+it is the best all-rounder, being the only method that handles both link types, whereas every classical
+heuristic is provably random on weak-tie links. Finally, its cross-layer attention weights make the
+predictions interpretable. The results are reported honestly, including the metrics on which classical
+methods and Node2Vec remain stronger, and directions for extending the model in the thesis are outlined.
+
+\vspace{4mm}
+\noindent\textbf{Keywords:} link prediction; multiplex networks; graph attention networks; weak ties;
+cross-layer attention; interpretability.

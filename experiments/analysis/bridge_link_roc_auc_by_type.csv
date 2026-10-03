@@ -1,7 +1,6 @@
 Model,Cross_ROC_AUC,Intra_ROC_AUC,Intra_minus_Cross
 gat,0.6338,0.5146,-0.1191
-proposed_A,0.6018,0.6736,0.0719
-proposed_B_weaktie_decoder,0.593,0.7098,0.1169
+Proposed,0.6018,0.6736,0.0719
 adamic_adar,0.5702,0.9193,0.3491
 common_neighbors,0.5702,0.852,0.2819
 jaccard,0.5702,0.8714,0.3012

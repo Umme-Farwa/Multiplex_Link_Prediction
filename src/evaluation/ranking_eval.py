@@ -59,8 +59,7 @@ K_VALUES = [1, 3, 5, 10]
 
 # model name -> canonical prediction CSV (relative to project root)
 MODEL_PREDICTIONS = {
-    "Proposed A":             "experiments/model_results/predictions/proposed_model_predictions.csv",
-    "Proposed B":             "experiments/ablation_results/predictions/proposed_weaktie_decoder_predictions.csv",
+    "Proposed":               "experiments/model_results/predictions/proposed_model_predictions.csv",
     "GAT":                    "experiments/baseline_results/predictions/gnn/gat_predictions.csv",
     "GCN":                    "experiments/baseline_results/predictions/gnn/gcn_predictions.csv",
     "Node2Vec":               "experiments/baseline_results/predictions/embedding/node2vec_predictions.csv",

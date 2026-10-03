@@ -1,0 +1,52 @@
+\chapter{State of the Art}
+\label{ch:sota}
+
+Link prediction methods can be grouped into three families, followed by the specific line of work on
+attention in multiplex networks that this report builds on. Recent work gives a broad
+overview of the area~\cite{zangari2024,heuristickdd2024}.
+
+\section{Classical Similarity Methods}
+The earliest and still widely used approach scores a candidate pair from the structure of its shared
+neighbourhood. \emph{Common Neighbours} counts shared neighbours; \emph{Jaccard} normalises that
+count; \emph{Adamic--Adar}~\cite{adamic2003} down-weights popular shared neighbours; and
+\emph{Preferential Attachment} multiplies the two node degrees. These heuristics are fast, require no
+training, and remain strong baselines, and they continue to be refined~\cite{heuristickdd2024}. Their
+defining limitation is structural: when a pair shares \emph{no} neighbours -- exactly the weak-tie
+case -- every neighbourhood score is zero and the prediction is no better than chance.
+
+\section{Embedding-based Methods}
+A second family learns a low-dimensional vector for each node such that nodes with similar roles lie
+close together. \emph{Node2Vec}~\cite{node2vec} generates these vectors from biased random walks and
+predicts a link from the similarity of the two node vectors. Because the vectors capture global
+role information rather than only immediate overlap, such methods can score pairs that share no
+neighbours, and they achieve strong ranking performance. They do not, however, use node attributes
+and, in their basic form, treat each layer separately.
+
+\section{Graph Neural Networks and Attention}
+Graph neural networks learn node representations by repeatedly aggregating information from
+neighbours. The \emph{Graph Convolutional Network} (GCN)~\cite{gcn} averages neighbour features with
+fixed, degree-based weights. The \emph{Graph Attention Network} (GAT)~\cite{gat} replaces this fixed
+average with a learned \emph{attention} mechanism, so that each neighbour receives an importance
+weight conditioned on its features; \emph{GATv2}~\cite{gatv2} later showed that a small
+reordering of GAT's operations yields a strictly more expressive, \emph{dynamic} attention.
+Attention has since become central to graph learning, both in dedicated
+surveys~\cite{attnsurvey2023} and in the broader move toward graph
+transformers~\cite{gtsurvey2024}. Attention matters here for two reasons: it improves
+accuracy by focusing on informative neighbours, and it produces weights that can be read back as an
+\emph{explanation} of the prediction.
+
+\section{Attention in Multiplex Networks}
+Extending attention to multilayer data is an active direction. The \emph{Heterogeneous Attention
+Network} (HAN)~\cite{han2019} introduced two levels of attention -- within a relation and across
+relations -- and is the conceptual starting point for the cross-layer attention used in this work.
+More recent studies apply attention and message passing directly to multiplex link
+prediction~\cite{multiplexsage2024,gao2023}, including cross-layer attention mechanisms closely
+related to the one used here.
+
+\section{Research Gap}
+Across these families, two gaps persist. First, the methods that are strongest on ordinary links --
+the neighbourhood heuristics -- are by construction random on weak-tie links, while the methods that
+can handle weak ties rarely target them explicitly. Second, cross-layer information is often either
+ignored (single-layer models) or fused in a fixed, non-interpretable way. This work addresses both:
+it injects a weak-tie signal into an attention encoder and adds an interpretable cross-layer
+attention that learns how much each layer contributes.

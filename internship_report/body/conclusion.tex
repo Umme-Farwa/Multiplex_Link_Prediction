@@ -1,0 +1,33 @@
+\chapter{Conclusions and Future Works}
+\label{ch:conclusion}
+
+\section{Summary}
+This internship studied link prediction in multiplex networks, with a focus on \emph{attention
+mechanisms} in graph neural networks. A representative set of baselines -- classical heuristics, a
+random-walk embedding method, and two graph neural networks -- was implemented and evaluated under a
+strict fair-comparison protocol on the 13-layer arXiv co-authorship network. On this foundation, an
+attention-based model was designed that couples a weak-tie-aware graph-attention encoder with an
+interpretable cross-layer attention and a fusion gate.
+
+\section{Key Findings}
+Three findings stand out. First, the proposed model achieves the \textbf{highest overall ROC-AUC} and
+a \emph{statistically significant} improvement over both graph-neural baselines ($p<0.001$ over five
+seeds). Second, on the weak-tie/common-neighbour split it is the \textbf{best all-rounder}: it is the
+only method competitive on both link types, whereas every classical heuristic is provably random
+(0.500) on weak-tie links. Third, its cross-layer attention yields \textbf{interpretable
+layer-importance weights}, making the predictions explainable in a way the baselines are not.
+
+\section{Limitations}
+The results are reported honestly, including where the model does not lead. Classical heuristics
+remain stronger on common-neighbour links and on ranking metrics, and Node2Vec is stronger on PR-AUC
+and F1. The evaluation uses a single dataset, and the cross-layer attention weights are global per
+layer rather than personalised per node.
+
+\section{Future Work}
+Several directions follow naturally and form the plan for the master's thesis. The encoder can be
+upgraded to \textbf{GATv2}~\cite{gatv2}, whose dynamic attention is strictly more expressive than the
+static attention used here. The cross-layer attention can be made \emph{node-specific} rather than
+global, and combined with the graph-transformer perspective~\cite{gtsurvey2024}. The ranking gap
+motivates a ranking-aware training objective. Finally, the model should be validated on additional
+multiplex datasets and against more recent attention-based multiplex
+methods~\cite{gao2023,multiplexsage2024} to test how well the findings generalise.

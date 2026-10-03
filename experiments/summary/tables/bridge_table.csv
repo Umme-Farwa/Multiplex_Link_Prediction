@@ -1,7 +1,6 @@
 Model,Bridge ROC-AUC,Overlap ROC-AUC
 GAT,0.6234,0.4147
-Proposed A,0.6152,0.4927
-Proposed B,0.6065,0.5312
+Proposed,0.6152,0.4927
 Adamic-Adar,0.5,0.8855
 Common Neighbors,0.5,0.7158
 Jaccard,0.5,0.7472

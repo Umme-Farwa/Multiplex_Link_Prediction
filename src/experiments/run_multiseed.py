@@ -12,15 +12,15 @@
 #
 # WHAT IT DOES
 # ------------
-# 1. Runs proposed_A, proposed_B and GAT once per seed, as separate
-#    subprocesses (so each gets a clean, fully re-seeded process).
+# 1. Runs the proposed model and the neural baselines once per seed, as
+#    separate subprocesses (so each gets a clean, fully re-seeded process).
 #    The model scripts themselves are UNCHANGED in logic -- they just
 #    read THESIS_SEED / THESIS_RUN_TAG / THESIS_MAX_EPOCHS from the
 #    environment, and write into experiments/multiseed/ so the
 #    canonical results are never overwritten.
 # 2. Reads every per-seed metrics CSV, averages the 13 layers to one
 #    number per seed, then computes mean +/- std across seeds.
-# 3. Runs a paired significance test (proposed vs GAT, A vs B).
+# 3. Runs a paired significance test (proposed vs GAT and GCN).
 #
 # USAGE (run from the project root)
 # ---------------------------------
@@ -62,7 +62,6 @@ PROJECT_ROOT = os.path.abspath(
 # deterministic -- a single fixed number -- so they are not multi-seeded.
 MODEL_SCRIPTS = {
     "proposed_A": "src/proposed_model/proposed_model.py",
-    "proposed_B": "src/proposed_model/proposed_model_weaktie_decoder.py",
     "gat":        "src/baselines/gnn_baselines/gat.py",
     "gcn":        "src/baselines/gnn_baselines/gcn.py",
     # Node2Vec is also stochastic (random walks + classifier init), so it
@@ -184,7 +183,7 @@ def aggregate(models, seeds):
 
 
 # ----------------------------------------------------------
-# 3. PAIRED significance tests (proposed vs GAT, A vs B)
+# 3. PAIRED significance tests (proposed vs GAT and GCN)
 # ----------------------------------------------------------
 
 def paired_test(name_a, vals_a, name_b, vals_b, metric):
@@ -302,14 +301,10 @@ def main():
 
     for metric in METRICS:
         have = {m: per_seed[m][metric] for m in models if per_seed[m][metric]}
-        # each proposed variant vs each neural baseline it should beat
-        for prop in ("proposed_A", "proposed_B"):
-            for base in ("gat", "gcn"):
-                if prop in have and base in have:
-                    paired_test(prop, have[prop], base, have[base], metric)
-        # the two proposed variants against each other (the ablation)
-        if "proposed_A" in have and "proposed_B" in have:
-            paired_test("proposed_B", have["proposed_B"], "proposed_A", have["proposed_A"], metric)
+        # the proposed model vs each neural baseline it should beat
+        for base in ("gat", "gcn"):
+            if "proposed_A" in have and base in have:
+                paired_test("proposed_A", have["proposed_A"], base, have[base], metric)
 
     # ---- 4. save ----
     os.makedirs(SUMMARY_DIR, exist_ok=True)

@@ -59,15 +59,12 @@ os.makedirs(TAB_DIR, exist_ok=True)
 # maps the many spellings used across files -> one canonical key
 def norm(name):
     n = str(name).strip().lower().replace(" ", "_").replace("-", "_")
-    if n.startswith("proposed_a"):
-        return "proposed_a"
-    if n.startswith("proposed_b"):
-        return "proposed_b"
+    if n.startswith("proposed"):
+        return "proposed"
     return n
 
 DISPLAY = {
-    "proposed_a": "Proposed A",
-    "proposed_b": "Proposed B",
+    "proposed": "Proposed",
     "gat": "GAT",
     "gcn": "GCN",
     "node2vec": "Node2Vec",
@@ -77,7 +74,7 @@ DISPLAY = {
     "preferential_attachment": "Preferential Attachment",
 }
 
-PROPOSED_KEYS = {"proposed_a", "proposed_b"}
+PROPOSED_KEYS = {"proposed"}
 
 CLASSICAL_FILES = {
     "adamic_adar": "experiments/baseline_results/metrics/classical/adamic_adar_metrics.csv",
@@ -145,7 +142,7 @@ def fmt_cell(mean, std):
 
 rows = []
 # order: proposed first, then neural baselines, then classical
-order = ["proposed_a", "proposed_b", "node2vec", "gat", "gcn",
+order = ["proposed", "node2vec", "gat", "gcn",
          "adamic_adar", "common_neighbors", "jaccard", "preferential_attachment"]
 
 for k in order:
@@ -180,7 +177,7 @@ if _exists("experiments/multiseed/multiseed_per_seed.csv") and HAVE_SCIPY:
 
     sig_rows = []
     for metric in METRICS:
-        for prop in ("proposed_a", "proposed_b"):
+        for prop in ("proposed",):
             for base in ("gat", "gcn"):
                 a = seed_vals(prop, metric)
                 b = seed_vals(base, metric)

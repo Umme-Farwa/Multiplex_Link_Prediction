@@ -1,0 +1,43 @@
+\chapter{Introduction}
+\label{ch:introduction}
+
+\section{Background}
+A \textbf{network} (or graph) is a set of nodes connected by links, and is one of the most general
+ways of representing relationships in data. In many real systems, however, the same entities are
+related in several different ways simultaneously: two researchers may collaborate in physics and,
+separately, in mathematics. Such systems are modelled as \textbf{multiplex (multilayer)
+networks}~\cite{kivela2014}, in which every type of relationship forms its own \emph{layer} over a
+shared set of nodes, so that the same node keeps the same identity in every layer. Link prediction
+in such networks is an active and rapidly evolving research area~\cite{zangari2024,heuristickdd2024}, with
+growing use of \textbf{attention-based graph neural networks}~\cite{gatv2,attnsurvey2023}.
+
+\textbf{Link prediction} estimates, for a pair of nodes that are not currently connected, how likely
+they are to become connected. It underlies collaboration and friend recommendation, the completion
+of partially observed biological and knowledge networks, and the analysis of how scientific fields
+grow.
+
+\section{Motivation}
+Not all links are equally easy or equally valuable to predict. Pairs that already share many
+neighbours are easy. The most valuable links, however, are frequently the \textbf{weak-tie links} --
+pairs drawn from different communities that share no common neighbours yet. Granovetter's theory of
+the strength of weak ties~\cite{granovetter1973} argues that precisely these bridging connections
+carry unique, non-redundant information. This creates a difficulty: classical methods score a pair
+from the number of neighbours it shares, so on a weak-tie link that number is zero, the score is
+zero, and the prediction is effectively random. A second limitation is that most methods analyse
+each layer in isolation and discard the information that a node's behaviour in one layer carries for
+another. These two gaps motivate this work.
+
+\section{Objectives}
+The internship pursued three objectives: (i) to study link prediction in multiplex networks and
+review the literature, with emphasis on \emph{attention mechanisms} in graph neural networks; (ii)
+to implement and fairly evaluate a representative set of baseline methods; and (iii) to design an
+\textbf{attention-based model} that predicts weak-tie links, combines information across all layers,
+and remains interpretable.
+
+\section{Contributions}
+The central contribution is an attention-based graph neural network that unifies two attention
+mechanisms -- a per-layer, weak-tie-aware graph-attention encoder and a cross-layer attention that
+weighs the layers -- together with a fusion gate. The model attains the highest ROC-AUC and a
+statistically significant improvement over the neural baselines, predicts weak-tie links where
+classical methods are random, and exposes interpretable layer-importance weights. This report is
+extended into the master's thesis, where each part is presented in greater depth.

@@ -1,0 +1,72 @@
+% ============================================================
+% Figure A: Conceptual illustration of a multiplex network.
+% Requires (already in thesis.sty):
+%   \usepackage{tikz}
+%   \usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc, fit, backgrounds}
+% Just \input this file, or paste the figure environment into a chapter.
+% ============================================================
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node/.style   = {circle, draw=black, fill=white, thick, minimum size=6mm, inner sep=0pt,
+                     font=\scriptsize},
+    intra/.style  = {black, thick},
+    couple/.style = {gray!60, dashed, thick},
+    weak/.style   = {red!75!black, dashed, very thick},
+    scale=1.0, transform shape=false
+]
+
+% ---- helper: node local positions (same in every layer) ----
+% p1..p5 : (x,y) inside the plane
+\def\px{{0.6, 1.7, 2.5, 3.4, 4.2}}   % x coordinates
+\def\py{{0.30,0.95,0.20,0.85,0.35}}  % y coordinates (depth)
+
+% ============ TOP layer (Layer A) : yshift = 5 ============
+\begin{scope}[yshift=5cm]
+  \fill[blue!14,draw=blue!45,thick] (-0.3,-0.3) -- (4.9,-0.3) -- (5.6,1.4) -- (0.4,1.4) -- cycle;
+  \foreach \i in {1,...,5}{
+     \pgfmathsetmacro\xx{\px[\i-1]} \pgfmathsetmacro\yy{\py[\i-1]}
+     \node[node] (A\i) at (\xx,\yy) {};}
+  % intra-layer edges (two small clusters)
+  \draw[intra] (A1)--(A2);
+  \draw[intra] (A3)--(A4);
+  \draw[intra] (A4)--(A5);
+  % candidate WEAK-TIE link (different clusters, no common neighbour)
+  \draw[weak] (A2)--(A5);
+  \node[blue!55!black, font=\small\bfseries] at (6.6,0.6) {Layer A};
+  \node[blue!55!black, font=\scriptsize] at (6.6,0.15) {(\texttt{cs.SI})};
+\end{scope}
+
+% ============ BOTTOM layer (Layer B) : yshift = 0 ============
+\begin{scope}[yshift=0cm]
+  \fill[green!16,draw=green!50!black,thick] (-0.3,-0.3) -- (4.9,-0.3) -- (5.6,1.4) -- (0.4,1.4) -- cycle;
+  \foreach \i in {1,...,5}{
+     \pgfmathsetmacro\xx{\px[\i-1]} \pgfmathsetmacro\yy{\py[\i-1]}
+     \node[node] (B\i) at (\xx,\yy) {};}
+  % intra-layer edges (different structure than Layer A)
+  \draw[intra] (B1)--(B2);
+  \draw[intra] (B2)--(B3);
+  \draw[intra] (B3)--(B5);
+  \draw[intra] (B4)--(B5);
+  \node[green!45!black, font=\small\bfseries] at (6.6,0.6) {Layer B};
+  \node[green!45!black, font=\scriptsize] at (6.6,0.15) {(\texttt{physics.soc-ph})};
+\end{scope}
+
+% ============ inter-layer coupling (same author in both layers) ============
+\begin{scope}[on background layer]
+  \foreach \i in {1,...,5}{ \draw[couple] (B\i) -- (A\i); }
+\end{scope}
+
+% ---- annotations ----
+\node[red!75!black, font=\scriptsize\itshape] at (2.4,6.9) {weak-tie link (to predict)};
+\node[gray!55!black, font=\scriptsize\itshape, align=center] at (8.3,2.6)
+      {\ldots\ one layer per\\ research domain\\ (13 in total)};
+
+\end{tikzpicture}
+\caption{Conceptual illustration of the multiplex co-authorship network. Each plane is one layer (a
+research domain); the same author keeps the same identity in every layer, shown by the vertical
+dashed inter-layer links. Solid lines are co-authorship edges within a layer. The red dashed edge is
+a \emph{weak-tie} link -- a pair from different neighbourhoods, with no common neighbour -- which is
+the hardest and most valuable case to predict. Only two of the 13 layers are drawn for clarity.}
+\label{fig:multiplex-concept}
+\end{figure}

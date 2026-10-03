@@ -1,7 +1,6 @@
 Model,bridge,strong
 gat,0.6234,0.4147
-proposed_A,0.6152,0.4927
-proposed_B_weaktie_decoder,0.6065,0.5312
+Proposed,0.6152,0.4927
 adamic_adar,0.5,0.8855
 common_neighbors,0.5,0.7158
 jaccard,0.5,0.7472
